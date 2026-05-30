@@ -1,6 +1,2 @@
-# 远程订阅源 URL
-# 每行一个 URL。支持标准的 .m3u 或简单的 .txt 格式。
-#
-# 示例：
-# https://raw.githubusercontent.com/iptv-org/iptv/master/streams/cn.m3u
-# https://example.com/live.txt
+https://raw.githubusercontent.com/iptv-org/iptv/master/streams/cn.m3u
+https://raw.githubusercontent.com/iptv-org/iptv/master/streams/cn_cgtn.m3u

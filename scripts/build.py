@@ -63,11 +63,27 @@ def fetch_source(url):
         print(f"Failed to fetch {url}: {e}")
         return []
 
+def normalize_name(name):
+    name = name.lower()
+    name = name.replace(" ", "")
+    name = re.sub(r'cctv-?(\d+)', r'cctv\1', name)
+    name = name.replace("plus", "+")
+    return name
+
+def match_channel(target_name, whitelist):
+    target_norm = normalize_name(target_name)
+    # 按照白名单长度降序，避免 cctv5 先于 cctv5+ 匹配
+    whitelist_sorted = sorted(whitelist, key=len, reverse=True)
+    for w in whitelist_sorted:
+        w_norm = normalize_name(w)
+        if w_norm in target_norm:
+            return w
+    return None
+
 def check_url(item):
     name, url = item
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     try:
-        # Try HEAD
         req = urllib.request.Request(url, headers=headers, method='HEAD')
         with urllib.request.urlopen(req, timeout=5) as response:
             if response.status in (200, 206, 301, 302, 403):
@@ -79,7 +95,6 @@ def check_url(item):
         pass
     
     try:
-        # Fallback to GET stream (read small amount)
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=5) as response:
             if response.status in (200, 206, 301, 302, 403):
@@ -96,18 +111,15 @@ def check_url(item):
 def main():
     print("=== IPTV Playlist Generator ===")
     
-    # 1. 读取白名单
     whitelist = set(read_lines(CHANNELS_FILE))
     print(f"[Info] Loaded {len(whitelist)} channels from whitelist.")
     
-    # 2. 读取本地源
     local_streams = []
     if os.path.exists(LOCAL_M3U_FILE):
         with open(LOCAL_M3U_FILE, 'r', encoding='utf-8') as f:
             local_streams = parse_m3u(f.read())
     print(f"[Info] Loaded {len(local_streams)} local streams.")
     
-    # 3. 读取远程源
     sources = read_lines(SOURCES_FILE)
     remote_streams = []
     for source in sources:
@@ -115,15 +127,21 @@ def main():
         remote_streams.extend(fetch_source(source))
     print(f"[Info] Fetched {len(remote_streams)} remote streams.")
     
-    # 4. 合并并过滤白名单
     all_streams = local_streams + remote_streams
     filtered_streams = []
+    match_counts = {w: 0 for w in whitelist}
+    
     for name, url in all_streams:
-        if name in whitelist:
-            filtered_streams.append((name, url))
+        matched_w = match_channel(name, list(whitelist))
+        if matched_w:
+            filtered_streams.append((matched_w, url))
+            match_counts[matched_w] += 1
+            
+    for w, count in match_counts.items():
+        print(f"[{w}] Matched {count} candidate sources.")
+        
     print(f"[Info] {len(filtered_streams)} streams matched the whitelist.")
     
-    # 5. 去重 (保留第一次出现的优先级，即 local 优先)
     seen = set()
     unique_streams = []
     for name, url in filtered_streams:
@@ -132,7 +150,6 @@ def main():
             unique_streams.append((name, url))
     print(f"[Info] {len(unique_streams)} unique streams to check.")
     
-    # 6. 可用性检测
     print("[Check] Starting URL availability check...")
     available_streams = []
     with ThreadPoolExecutor(max_workers=20) as executor:
@@ -144,7 +161,6 @@ def main():
     failed_count = len(unique_streams) - len(available_streams)
     print(f"[Check] Check finished. {len(available_streams)} available, {failed_count} failed.")
     
-    # 7. 生成输出文件
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     with open(OUTPUT_M3U_FILE, 'w', encoding='utf-8') as f:
         f.write("#EXTM3U\n")
